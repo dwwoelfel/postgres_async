@@ -73,6 +73,21 @@ module type S = sig
     -> handle_row:(column_names:string array -> values:string option array -> unit)
     -> (unit, error) Result.t Deferred.t
 
+  val send_prepare
+    :  t
+    -> statement_name:Types.Statement_name.t
+    -> query_string:string
+    -> (unit, error) Result.t Deferred.t
+
+  val query_prepared
+    :  t
+    -> ?parameters:string option array
+    -> ?pushback:(unit -> unit Deferred.t)
+    -> ?handle_columns:(column_metadata array -> unit)
+    -> Types.Statement_name.t
+    -> handle_row:(column_names:string array -> values:string option array -> unit)
+    -> (unit, error) Result.t Deferred.t
+
   val query_expect_no_data
     :  t
     -> ?parameters:string option array
