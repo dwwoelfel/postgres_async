@@ -67,7 +67,6 @@ module type S = sig
       [handle_row] *)
   val query
     :  t
-    -> ?statement_name:Types.Statement_name.t
     -> ?parameters:string option array
     -> ?pushback:(unit -> unit Deferred.t)
     -> ?handle_columns:(column_metadata array -> unit)

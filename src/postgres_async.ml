@@ -1104,7 +1104,7 @@ module Expert = struct
     | Command_complete_without_output of Protocol.Backend.CommandComplete.t
     | Remote_reported_error of Pgasync_error.t
 
-  let parse_and_start_executing_query ?(statement_name=Types.Statement_name.unnamed) t query_string ~parameters =
+  let parse_and_start_executing_query t query_string ~parameters =
     match t.state with
     | Failed { error; _ } ->
       (* See comment at top of file regarding erasing error codes from this error. *)
@@ -1122,11 +1122,11 @@ module Expert = struct
       catch_write_errors t ~flush_message:Write_afterwards ~f:(fun writer ->
         Protocol.Frontend.Writer.parse
           writer
-          { destination = (* statement_name *) Types.Statement_name.unnamed; query = query_string };
+          { destination = Types.Statement_name.unnamed; query = query_string };
         Protocol.Frontend.Writer.bind
           writer
           { destination = Types.Portal_name.unnamed
-          ; statement = statement_name (* Types.Statement_name.unnamed *)
+          ; statement = Types.Statement_name.unnamed
           ; parameters
           };
         Protocol.Frontend.Writer.describe writer (Portal Types.Portal_name.unnamed);
@@ -1278,10 +1278,10 @@ module Expert = struct
          COMMIT if we're inside a BEGIN/END block), and they're implicitly closed (before
          being re-opened) when the unnamed portal/statement is next used (e.g., by the
          next query). However, doing so frees resources more eagerly, which is good. *)
-      (* Protocol.Frontend.Writer.close writer (Portal Types.Portal_name.unnamed); *)
-      (* (\* Note that closing a statement implicitly closes any open portals that were *)
-      (*    constructed from it. *\) *)
-      (* Protocol.Frontend.Writer.close writer (Statement Types.Statement_name.unnamed); *)
+      Protocol.Frontend.Writer.close writer (Portal Types.Portal_name.unnamed);
+      (* Note that closing a statement implicitly closes any open portals that were
+         constructed from it. *)
+      Protocol.Frontend.Writer.close writer (Statement Types.Statement_name.unnamed);
       (* The sync message obviates the need for a flush message.
          Note that if we're not within a BEGIN/END block, this commits the transaction. *)
       Protocol.Frontend.Writer.sync writer);
@@ -1316,7 +1316,6 @@ module Expert = struct
 
   let internal_query
         t
-        ?(statement_name=Types.Statement_name.unnamed)
         ?(parameters = [||])
         ?pushback
         ~handle_columns
@@ -1324,7 +1323,7 @@ module Expert = struct
         ~handle_row
     =
     let%bind result =
-      match%bind parse_and_start_executing_query ~statement_name t query_string ~parameters with
+      match%bind parse_and_start_executing_query t query_string ~parameters with
       | Connection_closed _ as err -> return err
       | Done About_to_copy_out ->
         let%bind (Connection_closed _ | Done _) = drain_copy_out t in
@@ -1371,7 +1370,7 @@ module Expert = struct
 
   (* [query] wraps [internal_query], acquiring the sequencer lock and keeping the user's
      exceptions away from trashing our state. *)
-  let query t ?statement_name ?parameters ?pushback ?handle_columns query_string ~handle_row =
+  let query t ?parameters ?pushback ?handle_columns query_string ~handle_row =
     let callback_raised = ref false in
     let wrap_callback ~f =
       match !callback_raised with
@@ -1394,7 +1393,7 @@ module Expert = struct
     in
     let%bind result =
       Query_sequencer.enqueue t.sequencer (fun () ->
-        internal_query t ?statement_name ?parameters ?pushback ~handle_columns query_string ~handle_row)
+        internal_query t ?parameters ?pushback ~handle_columns query_string ~handle_row)
     in
     match !callback_raised with
     | true -> Deferred.never ()
@@ -1914,8 +1913,8 @@ let query_expect_no_data t ?parameters query_string =
   Expert.query_expect_no_data t ?parameters query_string >>| Or_pgasync_error.to_or_error
 ;;
 
-let query t ?statement_name ?parameters ?pushback ?handle_columns query_string ~handle_row =
-  Expert.query t ?statement_name ?parameters ?pushback ?handle_columns query_string ~handle_row
+let query t ?parameters ?pushback ?handle_columns query_string ~handle_row =
+  Expert.query t ?parameters ?pushback ?handle_columns query_string ~handle_row
   >>| Or_pgasync_error.to_or_error
 ;;
 
