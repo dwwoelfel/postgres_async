@@ -284,7 +284,15 @@ module Backend : sig
   end
 
   module CommandComplete : sig
-    type t = string
+    type t =
+      | Insert of {rows: int}
+      | Delete of {rows: int}
+      | Update of {rows: int}
+      | Select of {rows: int}
+      | Move of {rows: int}
+      | Fetch of {rows: int}
+      | Copy of {rows: int}
+      | Listen
 
     val consume : ([> read ], Iobuf.seek) Iobuf.t -> t Or_error.t
   end
