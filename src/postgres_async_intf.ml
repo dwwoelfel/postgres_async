@@ -74,7 +74,7 @@ module type S = sig
     -> handle_row:(column_names:string array -> values:string option array -> unit)
     -> (command_tag option, error) Result.t Deferred.t
 
-  val send_prepare
+  val prepare
     :  t
     -> statement_name:Types.Statement_name.t
     -> query_string:string

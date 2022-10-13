@@ -1443,7 +1443,7 @@ module Expert = struct
       | Done (Ok res), Done () -> return (Ok res))
   ;;
 
-  let parse_and_start_executing_query_for_send_prepare t ~statement_name ~query_string =
+  let parse_and_start_executing_query_for_prepare t ~statement_name ~query_string =
     match t.state with
     | Failed { error; _ } ->
       (* See comment at top of file regarding erasing error codes from this error. *)
@@ -1484,10 +1484,10 @@ module Expert = struct
         | _, msg_type -> unexpected_msg_type msg_type)
   ;;
 
-  let send_prepare t ~statement_name ~query_string =
+  let prepare t ~statement_name ~query_string =
     Query_sequencer.enqueue t.sequencer (fun () ->
       let%bind result =
-        match%bind parse_and_start_executing_query_for_send_prepare t ~statement_name ~query_string with
+        match%bind parse_and_start_executing_query_for_prepare t ~statement_name ~query_string with
         | Connection_closed _ as err -> return err
         | Done About_to_copy_out ->
           let%bind (Connection_closed _ | Done _) = drain_copy_out t in
@@ -1918,8 +1918,8 @@ let query t ?parameters ?pushback ?handle_columns query_string ~handle_row =
   >>| Or_pgasync_error.to_or_error
 ;;
 
-let send_prepare t ~statement_name ~query_string =
-  Expert.send_prepare t ~statement_name ~query_string
+let prepare t ~statement_name ~query_string =
+  Expert.prepare t ~statement_name ~query_string
   >>| Or_pgasync_error.to_or_error
 ;;
 
