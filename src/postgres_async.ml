@@ -1213,7 +1213,7 @@ module Expert = struct
       | CommandComplete ->
         (match Protocol.Backend.CommandComplete.consume iobuf with
          | Error err -> protocol_error_of_error err
-         | Ok res -> Stop (Ok (Some res)))
+         | Ok res -> Stop (Ok res))
       | msg_type -> unexpected_msg_type msg_type [%sexp "reading DataRows"])
   ;;
 
@@ -1226,8 +1226,8 @@ module Expert = struct
     in
     match%bind read_datarows t ~pushback:None ~f with
     | Connection_closed _ as e -> return e
-    (* XXX *)
-    | Done (Ok _ | Error _) -> return (Done !count)
+    | Done (Ok tag) -> return (Done (!count, (Ok tag)))
+    | Done (Error e) -> return (Done (!count, Error(e)))
   ;;
 
   let drain_copy_out t =
@@ -1238,7 +1238,7 @@ module Expert = struct
         (* [ErrorResponse] terminates copy-out mode; no separate [CopyDone] is required. *)
         (match Protocol.Backend.ErrorResponse.consume iobuf with
          | Error err -> protocol_error_of_error err
-         | Ok _ -> Stop None)
+         | Ok e -> Stop (Error e))
       | CopyData ->
         (match !seen_copy_done with
          | true -> protocol_error_s [%sexp "CopyData message after CopyDone?"]
@@ -1255,7 +1255,7 @@ module Expert = struct
          | Ok tag ->
            (match !seen_copy_done with
             | false -> protocol_error_s [%sexp "CommandComplete before CopyDone?"]
-            | true -> Stop (Some tag)))
+            | true -> Stop (Ok tag)))
       | msg_type -> unexpected_msg_type msg_type [%sexp "draining copy-out mode"])
   ;;
 
@@ -1336,12 +1336,12 @@ module Expert = struct
         let%bind (Connection_closed _ | Done ()) = abort_copy_in t ~reason in
         return (Done (Or_pgasync_error.error_string reason))
       | Done (Remote_reported_error error) -> return (Done (Error error))
-      | Done Empty_query -> return (Done (Ok None))
+      | Done Empty_query -> return (Done (Ok Protocol.Backend.CommandComplete.Empty_query))
       | Done (Command_complete_without_output tag) ->
          (* og edit: always call handle_columns even if there is no data. The empty array
                      indicates to the caller that there will be no rows *)
          handle_columns [||];
-         return (Done (Ok (Some tag)))
+         return (Done (Ok tag))
       | Done (About_to_deliver_rows description) ->
         handle_columns description;
         let column_names = Array.map description ~f:Column_metadata.name in
@@ -1424,15 +1424,16 @@ module Expert = struct
         | Done (About_to_deliver_rows _) ->
           (match%bind drain_datarows t with
            | Connection_closed _ as err -> return err
-           | Done 0 -> return (Done (Ok None))
+           | Done (_, (Error err)) -> return (Done (Error err))
+           | Done (0, (Ok tag)) -> return (Done (Ok tag))
            | Done _ ->
              return
                (Done
                   (Or_pgasync_error.error_s
                      [%message "query unexpectedly produced rows"])))
         | Done (Remote_reported_error error) -> return (Done (Error error))
-        | Done Empty_query -> return (Done (Ok None))
-        | Done (Command_complete_without_output tag) -> return (Done (Ok (Some tag)))
+        | Done Empty_query -> return (Done (Ok Protocol.Backend.CommandComplete.Empty_query))
+        | Done (Command_complete_without_output tag) -> return (Done (Ok tag))
       in
       let%bind sync_result =
         close_unnamed_portal_and_statement_and_sync_after_query t
@@ -1505,15 +1506,14 @@ module Expert = struct
         | Done (About_to_deliver_rows _) ->
           (match%bind drain_datarows t with
            | Connection_closed _ as err -> return err
-           | Done 0 -> return (Done (Ok None))
            | Done _ ->
              return
                (Done
                   (Or_pgasync_error.error_s
                      [%message "query unexpectedly produced rows"])))
         | Done (Remote_reported_error error) -> return (Done (Error error))
-        | Done Empty_query -> return (Done (Ok None))
-        | Done (Command_complete_without_output tag) -> return (Done (Ok (Some tag)))
+        | Done Empty_query -> return (Done (Ok Protocol.Backend.CommandComplete.Empty_query))
+        | Done (Command_complete_without_output tag) -> return (Done (Ok tag))
       in
       let%bind sync_result =
         close_unnamed_portal_and_statement_and_sync_after_query t
@@ -1632,10 +1632,10 @@ module Expert = struct
         let%bind (Connection_closed _ | Done ()) = abort_copy_in t ~reason in
         return (Done (Or_pgasync_error.error_string reason))
       | Done (Remote_reported_error error) -> return (Done (Error error))
-      | Done Empty_query -> return (Done (Ok None))
+      | Done Empty_query -> return (Done (Ok Protocol.Backend.CommandComplete.Empty_query))
       | Done (Command_complete_without_output tag) ->
          handle_columns [||];
-         return (Done (Ok (Some tag)))
+         return (Done (Ok tag))
       | Done (About_to_deliver_rows description) ->
         handle_columns description;
         let column_names = Array.map description ~f:Column_metadata.name in
@@ -1723,12 +1723,12 @@ module Expert = struct
       | Done (Empty_query | Command_complete_without_output _) ->
         force query_did_not_initiate_copy_in
       | Done (About_to_deliver_rows _) ->
-        let%bind (Connection_closed _ | Done (_ : int)) = drain_datarows t in
+        let%bind (Connection_closed _ | Done _) = drain_datarows t in
         force query_did_not_initiate_copy_in
       | Done (Remote_reported_error error) -> return (Done (Error error))
       | Done (Ready_to_copy_in _) ->
         let sent_copy_done = ref false in
-        let (response_deferred : (Protocol.Backend.CommandComplete.t option) Or_pgasync_error.t read_messages_result Deferred.t) =
+        let (response_deferred : Protocol.Backend.CommandComplete.t Or_pgasync_error.t read_messages_result Deferred.t) =
           read_messages t ~handle_message:(fun msg_type iobuf ->
             match msg_type with
             | ErrorResponse ->
@@ -1743,8 +1743,8 @@ module Expert = struct
                   | false ->
                     protocol_error_s
                       [%sexp "CommandComplete response before we sent CopyDone?"]
-                  | true -> Stop (Ok (Some tag))))
-            | msg_type -> unexpected_msg_type msg_type [%sexp "copying in"])
+                  | true -> Stop (Ok tag)))
+             | msg_type -> unexpected_msg_type msg_type [%sexp "copying in"])
         in
         let%bind () =
           let rec loop () =

@@ -921,6 +921,8 @@ module Backend = struct
       | Fetch of {rows: int}
       | Copy of {rows: int}
       | Listen
+      (* This doesn't really belong here, but it makes things much simpler *)
+      | Empty_query
 
     let consume_exn iobuf =
       let s = Shared.consume_cstring_exn iobuf in

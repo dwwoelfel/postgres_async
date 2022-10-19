@@ -293,6 +293,7 @@ module Backend : sig
       | Fetch of {rows: int}
       | Copy of {rows: int}
       | Listen
+      | Empty_query
 
     val consume : ([> read ], Iobuf.seek) Iobuf.t -> t Or_error.t
   end
